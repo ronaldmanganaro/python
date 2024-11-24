@@ -8,7 +8,23 @@ from selenium.webdriver.common.action_chains import ActionChains
 
 import chromedriver_autoinstaller
 
-def order_items(product_url, spending_limit, quantity_to_order=None):
+import argparse
+import subprocess
+import time
+import random
+
+def parse_arguents():
+    parser = argparse.ArgumentParser(description="bot that buys shit")
+    parser.add_argument('-l', '--link', help='link to the item you want to buy')
+    parser.add_argument('-t', '--test', help='test flow wihtout purchase step', action='store_true', default=False)
+    parser.add_argument('-p', '--preorder', help='set if preording product', action='store_true', default=False)
+    return parser.parse_args()
+
+def start_headless():
+    #subprocess.run(['start', 'chrome', '--remote-debugging-port=9222', '--user-data-dir="C:\Users\MrCool\AppData\Local\Google\Chrome\User Data"', '--profile-directory="default"'])
+    bestbuy_paypal(args.link, spending_limit, quantity_to_order)
+
+def bestbuy_paypal(product_url, spending_limit, quantity_to_order=None):
     # Automatically install and set up ChromeDriver
     chromedriver_autoinstaller.install()
 
@@ -16,20 +32,65 @@ def order_items(product_url, spending_limit, quantity_to_order=None):
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
     options.add_argument('--start-maximized')  # Open browser maximized
-
+    #options.add_argument('--disable-gpu')
+    #options.add_argument('--headless')
+    options.add_argument('--user-data-dir=\"C:\\Users\\MrCool\\AppData\\Local\\Google\\Chrome\\User Data\"')
+    options.add_argument('--profile-directory="default"')
+    
     # Initialize the WebDriver
     service = Service()  # Chromedriver auto-installer manages the correct binary
     driver = webdriver.Chrome(service=service, options=options)
 
     # Open the product page
+    driver.execute_script("window.open('');")
+    driver.switch_to.window(driver.window_handles[-1])
+    
     driver.get(product_url)
+    driver.save_screenshot("openproduct.png")
 
-    # Step 1: Add product to cart
-    add_to_cart_button = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-button-state='ADD_TO_CART']"))
-    )
-    actions = ActionChains(driver)
-    actions.move_to_element(add_to_cart_button).click().perform()
+    # Define parameters
+    timeout = 608400  # Total wait time in seconds
+    min_refresh_interval = 20  # Minimum refresh interval in seconds
+    max_refresh_interval = 50  # Maximum refresh interval in seconds
+
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            # Wait for up to 5 seconds to find the element
+            if args.preorder:
+                add_to_cart_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[@data-button-state='PRE_ORDER']"))
+                )
+            else:
+                add_to_cart_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[@data-button-state='ADD_TO_CART']"))
+                )
+                        
+            shipping_button = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(@aria-label, 'Shipping')]"))
+            )
+            
+            if add_to_cart_button:
+                print("Button is clickable!")
+                shipping_button.click()
+                actions = ActionChains(driver)
+                actions.move_to_element(add_to_cart_button).click().perform()
+                break  # Exit the loop when the condition is satisfied
+        except Exception as e:
+            # If the element is not found or not clickable, handle the exception
+            print("Waiting for the button...")
+
+        # Generate a random refresh interval
+        refresh_interval = random.randint(min_refresh_interval, max_refresh_interval)
+        print(f"Refreshing the page in {refresh_interval} seconds...")
+        time.sleep(refresh_interval)
+        driver.refresh()
+
+    # Cleanup
+    if time.time() - start_time >= timeout:
+        print("Timed out waiting for the button.")
+
 
     # Step 2: Go to the cart page
     cart_button = WebDriverWait(driver, 30).until(
@@ -38,29 +99,83 @@ def order_items(product_url, spending_limit, quantity_to_order=None):
     cart_button.click()
 
     # Step 3: Extract item price from cart
-    item_price_element = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "div.price-block__primary-price"))
+    #item_price_element = WebDriverWait(driver, 10).until(
+    #    EC.presence_of_element_located((By.CSS_SELECTOR, "div.price-block__primary-price"))
+    #)
+    #item_price = float(item_price_element.text.replace("$", "").replace(",", ""))
+    #print(f"Item price: ${item_price}")
+    
+     # Step 5: Click on the 'Place Your Order' button
+    paypal_button = WebDriverWait(driver, 30).until(
+        EC.element_to_be_clickable((By.XPATH, "//button[@data-track='Cart_PayPal_Checkout_Button']"))
     )
-    item_price = float(item_price_element.text.replace("$", "").replace(",", ""))
-    print(f"Item price: ${item_price}")
-
-    # Step 4: Proceed to checkout
-    checkout_button = WebDriverWait(driver, 30).until(
-        EC.element_to_be_clickable((By.XPATH, "//button[text()='Checkout']"))
-    )
-    checkout_button.click()
-
+    paypal_button.click()
+    
     # Step 5: Click on the 'Place Your Order' button
-    button = WebDriverWait(driver, 30).until(
+    paypal_review_order_button = WebDriverWait(driver, 30).until(
+        EC.element_to_be_clickable((By.XPATH, "//button[@id='payment-submit-btn']"))
+    )
+    paypal_review_order_button.click() 
+        
+    # Step 5: Click on the 'Place Your Order' button
+    order_button = WebDriverWait(driver, 30).until(
         EC.element_to_be_clickable((By.XPATH, "//button[@class='btn btn-lg btn-block btn-primary' and @data-track='Place your Order - Contact Card']"))
     )
-    button.click()
-
+    #print("PLACED ORDER")
+    
+    if args.test == True:
+        print("Test ORDERED")
+    else:
+        print("REALLY ORDERED")
+        order_button.click()
+    
     # Close the browser
     driver.quit()
 
 # Parameters: Specify the product URL, spending limit, and optional quantity
-product_url = "https://www.bestbuy.com/site/pokemon-trading-card-game-crown-zenith-mini-tin-styles-may-vary/6527311.p?skuId=6527311"
+#151 sku
+#sku = 6548369
+#crown zenith
+sku = 6527311
+product_url = f"https://www.bestbuy.com/site/pokemon-trading-card-game-scarlet-violet-shrouded-fable-mini-tin-styles-may-vary/{sku}.p?skuId={sku}"
+
 spending_limit = 100  # Replace with the maximum amount to spend
 quantity_to_order = 1  # Optional: Replace with a specific quantity if desired
-order_items(product_url, spending_limit, quantity_to_order)
+#order_items(product_url, spending_limit, quantity_to_order)
+#notes
+
+
+ def target():
+    # Automatically install and set up ChromeDriver
+    chromedriver_autoinstaller.install()
+
+    # Set up Chrome options
+    options = Options()
+    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+    options.add_argument('--start-maximized')  # Open browser maximized
+    #options.add_argument('--disable-gpu')
+    #options.add_argument('--headless')
+    options.add_argument('--user-data-dir=\"C:\\Users\\MrCool\\AppData\\Local\\Google\\Chrome\\User Data\"')
+    options.add_argument('--profile-directory="default"')
+    
+    # Initialize the WebDriver
+    service = Service()  # Chromedriver auto-installer manages the correct binary
+    driver = webdriver.Chrome(service=service, options=options)
+
+    # Open the product page
+    driver.execute_script("window.open('');")
+    driver.switch_to.window(driver.window_handles[-1])
+    
+    driver.get(product_url)
+    while True:
+        driver.refresh()
+        time.sleep(5)
+    
+if __name__ == "__main__":
+    args = parse_arguents()
+       
+    if args.link:
+        bestbuy_paypal(args.link, spending_limit, quantity_to_order)
+    else:
+        bestbuy_paypal(product_url, spending_limit, quantity_to_order)
+        
