@@ -5,6 +5,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import Select
 
 import chromedriver_autoinstaller
 
@@ -13,11 +14,16 @@ import subprocess
 import time
 import random
 
+spending_limit = 100  # Replace with the maximum amount to spend
+quantity_to_order = 1  # Optional: Replace with a specific quantity if desired
+        
 def parse_arguents():
     parser = argparse.ArgumentParser(description="bot that buys shit")
     parser.add_argument('-l', '--link', help='link to the item you want to buy')
     parser.add_argument('-t', '--test', help='test flow wihtout purchase step', action='store_true', default=False)
     parser.add_argument('-p', '--preorder', help='set if preording product', action='store_true', default=False)
+    parser.add_argument('-s', '--store', help='set if store product', default="bestbuy")
+    
     return parser.parse_args()
 
 def start_headless():
@@ -132,20 +138,8 @@ def bestbuy_paypal(product_url, spending_limit, quantity_to_order=None):
     # Close the browser
     driver.quit()
 
-# Parameters: Specify the product URL, spending limit, and optional quantity
-#151 sku
-#sku = 6548369
-#crown zenith
-sku = 6527311
-product_url = f"https://www.bestbuy.com/site/pokemon-trading-card-game-scarlet-violet-shrouded-fable-mini-tin-styles-may-vary/{sku}.p?skuId={sku}"
 
-spending_limit = 100  # Replace with the maximum amount to spend
-quantity_to_order = 1  # Optional: Replace with a specific quantity if desired
-#order_items(product_url, spending_limit, quantity_to_order)
-#notes
-
-
- def target():
+def target(product_url, spending_limit, quantity_to_order=None):
     # Automatically install and set up ChromeDriver
     chromedriver_autoinstaller.install()
 
@@ -161,21 +155,112 @@ quantity_to_order = 1  # Optional: Replace with a specific quantity if desired
     # Initialize the WebDriver
     service = Service()  # Chromedriver auto-installer manages the correct binary
     driver = webdriver.Chrome(service=service, options=options)
-
-    # Open the product page
     driver.execute_script("window.open('');")
     driver.switch_to.window(driver.window_handles[-1])
-    
+    print(f"open {product_url}")
     driver.get(product_url)
+    
+    # Define parameters
+    timeout = 608400  # Total wait time in seconds
+    min_refresh_interval = 13  # Minimum refresh interval in seconds
+    max_refresh_interval = 23  # Maximum refresh interval in seconds
+
+    start_time = time.time()
+    buy_now_button = None
+    
     while True:
-        driver.refresh()
-        time.sleep(5)
+        try:
+            # Attempt to find the Buy Now button
+            buy_now_button = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@data-test='buy-now-button']"))
+            )
+            
+            if buy_now_button:
+                print("Buy Now button is clickable!")
+
+                # Find the dropdown and click it
+                dropdown_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[@id='select-:rg:']"))
+                )
+                dropdown_button.click()
+
+                # Wait for the <ul> element to be present and updated
+                ul_element = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//ul[@class='sc-5a11d645-0 gPhogk']"))
+                )
+                
+                # Extract all <li> elements inside the <ul>
+                list_items = ul_element.find_elements(By.TAG_NAME, 'li')
+                
+                # Extract the numbers, convert them to integers, and find the largest
+                numbers = [int(item.text) for item in list_items if item.text.isdigit()]
+                
+                if numbers:
+                    largest_number = max(numbers)
+                    print(f"The largest number in the list is: {largest_number}")
+                    
+                    # Find the <li> element that contains the largest number
+                    for item in list_items:
+                        if item.text == str(largest_number):
+                            item.click()
+                            print(f"Clicked the <li> with the largest number: {largest_number}")
+                            break
+                else:
+                    print("No valid numbers found in the list.")
+
+                break  # Exit the loop after handling the Buy Now button
+            
+        except Exception as e:
+            # Handle errors like element not found or other issues
+            print(f"Waiting for the button...{e}")
+            # After the exception, refresh the page to retry
+            refresh_interval = random.randint(min_refresh_interval, max_refresh_interval)
+            print(f"Refreshing the page in {refresh_interval} seconds...")
+            time.sleep(refresh_interval)
+            driver.refresh()
+
+            # Optional: Break the loop if a certain amount of time has passed (to avoid infinite loop)
+            if time.time() - start_time > timeout:
+                print("Timed out waiting for the button.")
+                break
+    
+    buy_now_button = WebDriverWait(driver, 5).until(
+        EC.element_to_be_clickable((By.XPATH, "//button[@data-test='buy-now-button']"))
+    )
+    buy_now_button.click()
+    
+    wait = WebDriverWait(driver, 10)
+    iframe = wait.until(EC.presence_of_element_located((By.ID, 'buy-now-iframe')))  # Replace with the iframe's identifier
+    driver.switch_to.frame(iframe)
+    order_button = WebDriverWait(driver, 5).until(
+        EC.element_to_be_clickable((By.XPATH, "//button[@data-test='placeOrderButton']"))
+    )
+    order_button.click()
+    
+    cvv_button = WebDriverWait(driver, 5).until(
+        EC.element_to_be_clickable((By.XPATH, "//input[@id='enter-cvv']"))
+    )
+    cvv_button.send_keys("172")
+    
+    confirm_button = WebDriverWait(driver, 5).until(
+        EC.element_to_be_clickable((By.XPATH, "//button[@data-test='confirm-button']"))
+    )
+    
+    if args.test == True:
+        print("Test ORDERED")
+    else:
+        print("REALLY ORDERED")
+        confirm_button.click()
+    
+    driver.quit()
     
 if __name__ == "__main__":
     args = parse_arguents()
-       
-    if args.link:
-        bestbuy_paypal(args.link, spending_limit, quantity_to_order)
-    else:
-        bestbuy_paypal(product_url, spending_limit, quantity_to_order)
-        
+    store = args.store
+    
+    match store:
+        case "target":
+            print(f"opening target link {args.link}")
+            target(args.link, spending_limit, quantity_to_order)
+        case "bestbuy":
+            bestbuy_paypal(args.link, spending_limit, quantity_to_order)
